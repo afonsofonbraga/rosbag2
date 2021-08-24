@@ -167,6 +167,11 @@ public:
     rclcpp::shutdown();
   }
 
+  void stopRecording()
+  {
+    std::raise(SIGTERM);
+  }
+
   void record(
     const rosbag2_storage::StorageOptions & storage_options,
     RecordOptions & record_options)
@@ -269,6 +274,7 @@ PYBIND11_MODULE(_transport, m) {
 
   py::class_<rosbag2_py::Recorder>(m, "Recorder")
   .def(py::init())
+  .def("stopRecording", &rosbag2_py::Recorder::stopRecording)
   .def("record", &rosbag2_py::Recorder::record)
   ;
 }
