@@ -12,10 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import os
 import sys
+import threading
+import yaml
+from pathlib import Path
 
+from common import get_rosbag_options  # noqa
+import rclpy
 from rclpy.qos import QoSProfile
+from std_msgs.msg import String
 
 if os.environ.get('ROSBAG2_PY_TEST_WITH_RTLD_GLOBAL', None) is not None:
     # This is needed on Linux when compiling with clang/libc++.
@@ -40,3 +47,50 @@ def test_options_qos_conversion():
     record_options = rosbag2_py.RecordOptions()
     record_options.topic_qos_profile_overrides = simple_overrides
     assert record_options.topic_qos_profile_overrides == simple_overrides
+
+
+def test_record_cancel(tmp_path):
+    bag_path = str(tmp_path / 'test_record_cancel')
+    storage_options, converter_options = get_rosbag_options(bag_path)
+
+    recorder = rosbag2_py.Recorder()
+
+    record_options = rosbag2_py.RecordOptions()
+    record_options.all = True
+    record_options.is_discovery_disabled = False
+    record_options.rmw_serialization_format = ""
+    record_options.topic_polling_interval = datetime.timedelta(milliseconds=100)
+
+    record_options.compression_mode = 'none'
+    record_options.compression_queue_size = 1
+    record_options.compression_threads = 0
+
+    rclpy.init()
+    record_thread = threading.Thread(
+        target=recorder.record,
+        args=(storage_options, record_options),
+        daemon=True)
+    record_thread.start()
+
+    node = rclpy.create_node('test_record_cancel')
+    executor = rclpy.executors.SingleThreadedExecutor()
+    executor.add_node(node)
+    pub = node.create_publisher(String, 'chatter', 10)
+
+    i = 0
+    import time
+    while rclpy.ok() and i < 10:
+        msg = String()
+        msg.data = 'Hello World: {0}'.format(i)
+        i += 1
+        pub.publish(msg)
+        time.sleep(0.1)
+
+    recorder.cancel()
+    msg = String()
+    msg.data = 'Spining one last time'
+    pub.publish(msg)
+    time.sleep(0.1)
+
+    assert (Path(bag_path) / 'metadata.yaml').exists()
+    assert (Path(bag_path) / 'test_record_cancel_0.db3').exists()
